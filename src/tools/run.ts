@@ -19,12 +19,14 @@ import {
 } from './types.js';
 
 export const runSchema = z.object({
-  command: z.string().min(1, 'command is required'),
+  argv: z
+    .array(z.string())
+    .min(1, 'argv must contain at least one element (the program to run)'),
   project_id: z.string().optional(),
   no_inherit_env: z.boolean().optional().default(false),
   confirm: z.literal(true, {
     errorMap: () => ({
-      message: 'confirm must be true to run a shell command via bws run',
+      message: 'confirm must be true to execute a command via bws run',
     }),
   }),
 });
@@ -32,14 +34,20 @@ export const runSchema = z.object({
 export const runTool: Tool = {
   name: 'bws_run',
   description:
-    'Execute a shell command with project secrets injected as environment variables, using `bws run`. EXECUTION — requires { "confirm": true }. The model can invoke arbitrary commands through this tool, so treat it like `bash` in terms of blast radius. Use project_id to scope which secrets get injected; set no_inherit_env: true to start from a clean environment. Returns stdout, stderr, and exit code.',
+    'Execute a command with project secrets injected as environment variables, using `bws run`. EXECUTION — requires { "confirm": true }. ' +
+    'The argv is passed DIRECTLY to the child process (no shell, no eval, no /bin/sh). ' +
+    'To run a shell pipeline, pass `["sh", "-c", "your | pipeline"]` explicitly. ' +
+    'Use project_id to scope which secrets get injected; set no_inherit_env: true to start from a clean environment. ' +
+    'Returns stdout, stderr, and exit code.',
   inputSchema: {
     type: 'object',
     properties: {
-      command: {
-        type: 'string',
+      argv: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
         description:
-          'Shell command to execute (passed to `sh -c`). Example: "deploy.sh --env staging" or "psql -c \\"SELECT 1\\"".',
+          'Argv array: program followed by arguments. Example: ["deploy.sh", "--env", "staging"] or ["psql", "-c", "SELECT 1"]. To run a shell pipeline, pass ["sh", "-c", "cmd1 | cmd2"]. No implicit shell wrapping.',
       },
       project_id: {
         type: 'string',
@@ -57,7 +65,7 @@ export const runTool: Tool = {
           'Must be literally true to authorize command execution.',
       },
     },
-    required: ['command', 'confirm'],
+    required: ['argv', 'confirm'],
     additionalProperties: false,
   },
 };
@@ -75,10 +83,10 @@ export async function handleRun(
 
   try {
     const input: {
-      command: string;
+      argv: readonly string[];
       projectId?: string;
       noInheritEnv?: boolean;
-    } = { command: parsed.data.command };
+    } = { argv: parsed.data.argv };
     if (parsed.data.project_id !== undefined) {
       input.projectId = parsed.data.project_id;
     }

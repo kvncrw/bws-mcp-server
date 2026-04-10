@@ -213,7 +213,7 @@ describe('tools/call against stub bws', () => {
     await harness.start();
     await harness.initialize();
 
-    const result = await call('bws_run', { command: 'echo hi' });
+    const result = await call('bws_run', { argv: ['echo', 'hi'] });
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain('confirm');
   });
@@ -224,7 +224,7 @@ describe('tools/call against stub bws', () => {
     await harness.initialize();
 
     const result = await call('bws_run', {
-      command: 'echo stub-ok',
+      argv: ['echo', 'stub-ok'],
       confirm: true,
     });
     expect(result.isError).toBeFalsy();
@@ -234,6 +234,19 @@ describe('tools/call against stub bws', () => {
     };
     expect(payload.exit_code).toBe(0);
     expect(payload.stdout).toContain('stub-ok');
+  });
+
+  test('bws_run rejects empty argv even with confirm', async () => {
+    harness = new McpHarness();
+    await harness.start();
+    await harness.initialize();
+
+    const result = await call('bws_run', {
+      argv: [],
+      confirm: true,
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain('at least one element');
   });
 
   test('unknown tool returns an error response, not a crash', async () => {

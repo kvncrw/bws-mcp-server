@@ -29,7 +29,7 @@ This server is a thin wrapper (~500 lines of TypeScript) around the `bws` binary
 | `bws_secret_create` | Create a secret inside a project | write |
 | `bws_secret_edit` | Update a secret's key, value, note, or project | write |
 | `bws_secret_delete` | Delete a secret | **destructive** (requires `confirm: true`) |
-| `bws_run` | Run a shell command with secrets injected as env vars | **execution** (requires `confirm: true`) |
+| `bws_run` | Exec a command (argv, no shell) with secrets injected as env vars | **execution** (requires `confirm: true`) |
 
 The destructive tools reject any call that doesn't include `{"confirm": true}` in the arguments. That check happens as the very first thing in each handler, before anything else runs. It's a policy gate, not a cryptographic barrier — the model can still pass `confirm: true` if it decides to — but it forces the decision to the surface instead of letting a "delete everything" ask slip through on a single turn.
 
@@ -116,20 +116,23 @@ Claude (or your MCP client's approval UI) then has to explicitly opt in. It's a 
 
 **Prompt:** "Run `./scripts/smoke-test.sh` with staging secrets."
 
-Claude calls `bws_run` with `{ "command": "./scripts/smoke-test.sh", "project_id": "staging-uuid", "confirm": true }`. The MCP server shells out to `bws run --project-id staging-uuid -- sh -c './scripts/smoke-test.sh'`, which starts the script with every secret in that project already exported as environment variables. The tool returns stdout, stderr, and exit code separately, so the model can reason about pass/fail without you having to parse interleaved output.
+Claude calls `bws_run` with `{ "argv": ["./scripts/smoke-test.sh"], "project_id": "staging-uuid", "confirm": true }`. The MCP server invokes `bws run --project-id staging-uuid -- ./scripts/smoke-test.sh` — directly, no shell in between — which starts the script with every secret in that project already exported as environment variables. The tool returns stdout, stderr, and exit code separately, so the model can reason about pass/fail without you having to parse interleaved output.
 
 ## How `bws_run` works
 
-`bws_run` is the most powerful tool in the set, and probably the one you'll reach for more often than the CRUD tools. It wraps `bws run --project-id <id> -- sh -c '<command>'`, which is Bitwarden's way of saying "fetch every secret I can see, set them as environment variables, then exec this child command."
+`bws_run` is the most powerful tool in the set, and probably the one you'll reach for more often than the CRUD tools. It wraps `bws run --project-id <id> -- <argv…>`, which is Bitwarden's way of saying "fetch every secret I can see, set them as environment variables, then exec this child process."
+
+Notice that word: **exec**, not `sh -c`. The `argv` you pass is handed to the child process directly — program name first, arguments after. There is no implicit shell. That's a deliberate choice: a tool an LLM can call that takes a free-form shell string is an eval surface, and Claude (or Qwen, or Gemopus, or whoever the agent du jour is) should not have a direct pipe to `/bin/sh` via your secrets manager. If you genuinely need a shell pipeline, pass one yourself: `["sh", "-c", "cat /etc/hostname | tr a-z A-Z"]`.
 
 So if you've got a secret `DB_URL` in project `deletemyai-staging`, and you ask the model:
 
 > Run `psql -c "SELECT count(*) FROM users"` against the staging DB.
 
-…the model can call `bws_run` with `{ "command": "psql -c 'SELECT count(*) FROM users'", "project_id": "deletemyai-staging-uuid", "confirm": true }`, and the `psql` process will start up with `DB_URL` already in its environment. No file writes, no manual export, no leaking the value through the model's context (the plaintext only ever lives in the child process).
+…the model can call `bws_run` with `{ "argv": ["psql", "-c", "SELECT count(*) FROM users"], "project_id": "deletemyai-staging-uuid", "confirm": true }`, and the `psql` process will start up with `DB_URL` already in its environment. No file writes, no manual export, no leaking the value through the model's context (the plaintext only ever lives in the child process).
 
-Two knobs worth knowing about:
+Three knobs worth knowing about:
 
+- **`argv`** is the program and its arguments as an array of strings. First element is the executable; the rest are arguments. No shell parsing, no word-splitting, no glob expansion — what you pass is what gets `execve()`'d.
 - **`project_id`** scopes which secrets get injected. If you leave it off, you get everything the token can see, which is usually too much.
 - **`no_inherit_env`** starts the child from a clean environment, with only the injected secrets. Useful when you want to guarantee the command can't see anything from the MCP server's own environment.
 
@@ -137,15 +140,16 @@ The tool returns `stdout`, `stderr`, and `exit_code` — all three, separately, 
 
 A few patterns that work well:
 
-- **One-shot database queries.** `psql -c 'SELECT ...'`, `redis-cli GET foo`, `mongosh --eval '...'`. The credential stays inside the child process; it doesn't flow back through the model unless you `echo` it.
-- **Deploy scripts.** If your `deploy.sh` reads `DEPLOY_TOKEN` from the environment, `bws_run` is the cleanest way to hand it a token without writing a temp file.
-- **Sanity checks.** `curl -sf "$API_URL/health"`, `kubectl get pods`, `helm list -A`. Great for "is staging up?" style questions.
+- **One-shot database queries.** `["psql", "-c", "SELECT ..."]`, `["redis-cli", "GET", "foo"]`, `["mongosh", "--eval", "..."]`. The credential stays inside the child process; it doesn't flow back through the model unless the command prints it.
+- **Deploy scripts.** If your `deploy.sh` reads `DEPLOY_TOKEN` from the environment, `["./deploy.sh", "--env", "staging"]` is the cleanest way to hand it a token without writing a temp file.
+- **Sanity checks.** `["curl", "-sf", "https://staging.example.com/health"]`, `["kubectl", "get", "pods"]`, `["helm", "list", "-A"]`. Great for "is staging up?" style questions.
+- **Explicit shell pipelines** when you need them: `["sh", "-c", "kubectl get pods -o json | jq '.items | length'"]`. The caller has to opt into the shell, and it's visible in the argv so nothing is hidden.
 
 And a few that don't work well:
 
 - **Interactive commands.** `bws_run` doesn't give you a TTY. Anything that expects a terminal (editors, TUIs, interactive prompts) will probably hang.
 - **Long-running processes.** The server waits for the child to exit before returning. If you `exec` a web server here, you'll wedge the whole conversation until it crashes.
-- **Commands where the secret is the output.** `echo "$DB_URL"` works mechanically, but the secret ends up in the model's context and the LLM provider's logs. If that's what you want, `bws_secret_get` is usually a better fit (and still surfaces the value to the model — there's no way around that).
+- **Commands where the secret is the output.** `["sh", "-c", "echo $DB_URL"]` works mechanically, but the secret ends up in the model's context and the LLM provider's logs. If that's what you want, `bws_secret_get` is usually a better fit (and still surfaces the value to the model — there's no way around that).
 
 ## Configuration reference
 

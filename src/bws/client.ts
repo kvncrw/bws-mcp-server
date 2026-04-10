@@ -84,6 +84,12 @@ export async function spawnBws(
 
 /**
  * Run bws and parse stdout as JSON. Throws BwsError on non-zero exit.
+ *
+ * Note: Most bws commands return JSON, but `bws project delete` and
+ * `bws secret delete` return a plain-text confirmation line like
+ * "1 secret deleted successfully." If the stdout doesn't look like JSON
+ * (i.e. doesn't start with `{` or `[` after trimming), we treat it as a
+ * non-JSON success response and return null instead of throwing.
  */
 export async function runBwsJson<T>(
   config: BwsConfig,
@@ -99,6 +105,11 @@ export async function runBwsJson<T>(
   }
   const trimmed = result.stdout.trim();
   if (trimmed.length === 0) {
+    return null as unknown as T;
+  }
+  // bws delete commands return plain text, not JSON. Detect by leading char.
+  const first = trimmed[0];
+  if (first !== '{' && first !== '[') {
     return null as unknown as T;
   }
   try {
@@ -229,14 +240,32 @@ export async function deleteSecret(
 }
 
 /**
- * Build argv for `bws run` — separated out because it takes a command
- * tail that's forwarded to the child shell.
+ * Build argv for `bws run` — takes an explicit argv tail (program + args)
+ * that gets forwarded to the child process directly. We deliberately do
+ * NOT default to wrapping in `sh -c`; the previous shape exposed two
+ * problems we don't want to ship:
+ *
+ *   1. Eval-equivalent risk. An MCP tool that takes a free-form shell
+ *      string and pipes it to `sh -c` is a remote-code-execution surface
+ *      for the LLM driving the agent. Direct argv keeps the user in
+ *      control of what runs.
+ *   2. /bin/sh portability. On Debian /bin/sh is dash; on Arch and macOS
+ *      it's bash; on Alpine it's busybox ash. Each has subtly different
+ *      builtin behavior (printf, echo, expansion rules) and bash also
+ *      slurps exported function definitions from the parent env, which
+ *      breaks reproducibility across hosts.
+ *
+ * If callers genuinely need a shell, they can pass `['sh', '-c', cmd]`
+ * explicitly — we just don't default to it.
  */
 export function buildRunArgs(input: {
-  command: string;
+  argv: readonly string[];
   projectId?: string;
   noInheritEnv?: boolean;
 }): string[] {
+  if (!input.argv || input.argv.length === 0) {
+    throw new Error('buildRunArgs: argv must contain at least one element');
+  }
   const args: string[] = ['run'];
   if (input.projectId) {
     args.push('--project-id', input.projectId);
@@ -244,13 +273,17 @@ export function buildRunArgs(input: {
   if (input.noInheritEnv) {
     args.push('--no-inherit-env');
   }
-  args.push('--', 'sh', '-c', input.command);
+  args.push('--', ...input.argv);
   return args;
 }
 
 export async function runWithSecrets(
   config: BwsConfig,
-  input: { command: string; projectId?: string; noInheritEnv?: boolean },
+  input: {
+    argv: readonly string[];
+    projectId?: string;
+    noInheritEnv?: boolean;
+  },
 ): Promise<SpawnResult> {
   const args = buildRunArgs(input);
   return spawnBws(config, args);

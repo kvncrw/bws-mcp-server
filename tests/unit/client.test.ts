@@ -10,14 +10,19 @@ import { describe, expect, test } from '@jest/globals';
 import { buildRunArgs } from '../../src/bws/client.js';
 
 describe('buildRunArgs', () => {
-  test('minimal command wraps it in sh -c', () => {
-    const args = buildRunArgs({ command: 'echo hi' });
-    expect(args).toEqual(['run', '--', 'sh', '-c', 'echo hi']);
+  test('minimal argv is passed through verbatim after --', () => {
+    const args = buildRunArgs({ argv: ['echo', 'hi'] });
+    expect(args).toEqual(['run', '--', 'echo', 'hi']);
+  });
+
+  test('single-element argv works', () => {
+    const args = buildRunArgs({ argv: ['env'] });
+    expect(args).toEqual(['run', '--', 'env']);
   });
 
   test('project_id is passed via --project-id', () => {
     const args = buildRunArgs({
-      command: 'deploy.sh',
+      argv: ['deploy.sh'],
       projectId: 'proj-123',
     });
     expect(args).toEqual([
@@ -25,30 +30,43 @@ describe('buildRunArgs', () => {
       '--project-id',
       'proj-123',
       '--',
-      'sh',
-      '-c',
       'deploy.sh',
     ]);
   });
 
   test('no_inherit_env adds the --no-inherit-env flag', () => {
     const args = buildRunArgs({
-      command: 'env',
+      argv: ['env'],
       noInheritEnv: true,
     });
     expect(args).toEqual([
       'run',
       '--no-inherit-env',
       '--',
-      'sh',
-      '-c',
       'env',
     ]);
   });
 
+  test('explicit shell pipeline is allowed when caller asks for it', () => {
+    const args = buildRunArgs({
+      argv: ['sh', '-c', 'cat /etc/hostname | tr a-z A-Z'],
+    });
+    expect(args).toEqual([
+      'run',
+      '--',
+      'sh',
+      '-c',
+      'cat /etc/hostname | tr a-z A-Z',
+    ]);
+  });
+
+  test('empty argv throws', () => {
+    expect(() => buildRunArgs({ argv: [] })).toThrow(/at least one element/);
+  });
+
   test('both project_id and no_inherit_env together', () => {
     const args = buildRunArgs({
-      command: 'make test',
+      argv: ['make', 'test'],
       projectId: 'p1',
       noInheritEnv: true,
     });
@@ -58,9 +76,8 @@ describe('buildRunArgs', () => {
       'p1',
       '--no-inherit-env',
       '--',
-      'sh',
-      '-c',
-      'make test',
+      'make',
+      'test',
     ]);
   });
 });

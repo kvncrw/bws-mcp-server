@@ -142,24 +142,47 @@ describe('secret schemas', () => {
 });
 
 describe('run schema', () => {
-  test('requires command and confirm=true', () => {
-    expect(runSchema.safeParse({ command: 'echo' }).success).toBe(false);
+  test('requires argv and confirm=true', () => {
+    expect(runSchema.safeParse({ argv: ['echo'] }).success).toBe(false);
     expect(
-      runSchema.safeParse({ command: 'echo', confirm: false }).success,
+      runSchema.safeParse({ argv: ['echo'], confirm: false }).success,
     ).toBe(false);
     expect(
-      runSchema.safeParse({ command: 'echo', confirm: true }).success,
+      runSchema.safeParse({ argv: ['echo'], confirm: true }).success,
     ).toBe(true);
+  });
+
+  test('empty argv is rejected', () => {
+    expect(
+      runSchema.safeParse({ argv: [], confirm: true }).success,
+    ).toBe(false);
+  });
+
+  test('argv must be an array of strings', () => {
+    expect(
+      runSchema.safeParse({ argv: 'echo hi', confirm: true }).success,
+    ).toBe(false);
+    expect(
+      runSchema.safeParse({ argv: [1, 2, 3], confirm: true }).success,
+    ).toBe(false);
   });
 
   test('optional fields parse when provided', () => {
     const parsed = runSchema.safeParse({
-      command: 'deploy',
+      argv: ['deploy', '--env', 'prod'],
       project_id: 'p1',
       no_inherit_env: true,
       confirm: true,
     });
     expect(parsed.success).toBe(true);
+  });
+
+  test('legacy command field is rejected (additionalProperties: false)', () => {
+    // Old callers that still pass `command:` instead of `argv:` should
+    // get a clean validation failure, not a silent accept.
+    expect(
+      runSchema.safeParse({ command: 'echo', confirm: true }).success,
+    ).toBe(false);
   });
 });
 
