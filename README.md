@@ -1,5 +1,13 @@
 # bws-mcp-server
 
+[![CI](https://img.shields.io/github/actions/workflow/status/kvncrw/bws-mcp-server/ci.yml?branch=main&label=CI&logo=github)](https://github.com/kvncrw/bws-mcp-server/actions/workflows/ci.yml)
+[![Integration](https://img.shields.io/github/actions/workflow/status/kvncrw/bws-mcp-server/integration.yml?branch=main&label=integration&logo=github)](https://github.com/kvncrw/bws-mcp-server/actions/workflows/integration.yml)
+[![codecov](https://codecov.io/gh/kvncrw/bws-mcp-server/branch/main/graph/badge.svg)](https://codecov.io/gh/kvncrw/bws-mcp-server)
+[![npm version](https://img.shields.io/npm/v/@kvncrw/bws-mcp-server?logo=npm)](https://www.npmjs.com/package/@kvncrw/bws-mcp-server)
+[![npm downloads](https://img.shields.io/npm/dm/@kvncrw/bws-mcp-server?logo=npm)](https://www.npmjs.com/package/@kvncrw/bws-mcp-server)
+[![license](https://img.shields.io/github/license/kvncrw/bws-mcp-server)](./LICENSE)
+[![node](https://img.shields.io/node/v/@kvncrw/bws-mcp-server)](https://nodejs.org)
+
 A Model Context Protocol server for Bitwarden Secrets Manager. Wraps the official `bws` CLI so Claude (and any other MCP client) can manage your infrastructure secrets.
 
 ```bash

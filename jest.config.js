@@ -27,8 +27,12 @@ export default {
   },
   testMatch: ['**/tests/**/*.test.ts'],
   collectCoverage: false,
-  collectCoverageFrom: ['src/**/*.ts'],
-  coverageReporters: ['text', 'lcov'],
+  collectCoverageFrom: [
+    'src/**/*.ts',
+    '!src/index.ts',
+    '!src/**/*.d.ts',
+  ],
+  coverageReporters: ['text', 'text-summary', 'lcov', 'json-summary', 'cobertura'],
   coverageDirectory: 'coverage',
   testTimeout: 30000,
 };

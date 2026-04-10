@@ -57,6 +57,7 @@
     "test:unit": "jest --testPathPatterns=tests/unit",
     "test:protocol": "jest --testPathPatterns=tests/protocol",
     "test:integration": "jest --testPathPatterns=tests/integration",
+    "test:coverage": "jest --testPathPatterns=tests/unit --coverage",
     "test:watch": "jest --watch"
   }
 }
