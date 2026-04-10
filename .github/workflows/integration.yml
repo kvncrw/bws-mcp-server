@@ -1,0 +1,47 @@
+name: Integration
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install bws CLI
+        env:
+          BWS_VERSION: '1.0.0'
+        run: |
+          curl -fsSL "https://github.com/bitwarden/sdk-sm/releases/download/bws-v${BWS_VERSION}/bws-x86_64-unknown-linux-gnu-${BWS_VERSION}.zip" -o /tmp/bws.zip
+          sudo unzip -q /tmp/bws.zip -d /usr/local/bin
+          sudo chmod +x /usr/local/bin/bws
+          bws --version
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Protocol E2E tests
+        run: npm run test:protocol
+
+      - name: Integration tests (real BSM)
+        env:
+          BWS_ACCESS_TOKEN_TEST: ${{ secrets.BWS_ACCESS_TOKEN_TEST }}
+          BWS_TEST_PROJECT_ID: ${{ secrets.BWS_TEST_PROJECT_ID }}
+        run: npm run test:integration

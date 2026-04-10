@@ -1,0 +1,62 @@
+{
+  "type": "module",
+  "name": "@kvncrw/bws-mcp-server",
+  "version": "0.1.0",
+  "description": "MCP server for Bitwarden Secrets Manager. Wraps the official bws CLI so Claude and other MCP clients can manage infrastructure secrets.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kvncrw/bws-mcp-server.git"
+  },
+  "author": "Kevin Crawley",
+  "license": "GPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/kvncrw/bws-mcp-server/issues"
+  },
+  "homepage": "https://github.com/kvncrw/bws-mcp-server",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "bitwarden",
+    "bitwarden-secrets-manager",
+    "bws",
+    "secrets",
+    "claude"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.26.0",
+    "shx": "0.4.0",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.2",
+    "@jest/globals": "30.2.0",
+    "@types/jest": "30.0.0",
+    "@types/node": "22.10.2",
+    "eslint": "9.39.2",
+    "globals": "15.14.0",
+    "jest": "30.2.0",
+    "prettier": "3.8.1",
+    "ts-jest": "29.4.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.54.0"
+  },
+  "bin": {
+    "bws-mcp-server": "dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "lint": "eslint . --cache --cache-strategy content",
+    "lint:fix": "eslint . --cache --cache-strategy content --fix",
+    "build": "tsc && shx chmod +x dist/index.js",
+    "test": "jest",
+    "test:unit": "jest --testPathPatterns=tests/unit",
+    "test:protocol": "jest --testPathPatterns=tests/protocol",
+    "test:integration": "jest --testPathPatterns=tests/integration",
+    "test:watch": "jest --watch"
+  }
+}
