@@ -27,8 +27,55 @@ export interface SpawnResult {
 }
 
 /**
+ * Retry config for transient BSM API failures (5xx, and the 404-on-empty-
+ * project-right-after-create eventual-consistency race the Bitwarden cloud
+ * exhibits). Callers can override via BwsConfig fields if needed.
+ *
+ * Baseline: 3 attempts, starting at 200ms, doubling each time. Total worst
+ * case sleep is 600ms, which is tolerable even for interactive use.
+ */
+const DEFAULT_RETRY_ATTEMPTS = 4;
+const DEFAULT_RETRY_BASE_MS = 500;
+
+/**
+ * Decide whether a failed bws invocation is worth retrying.
+ *
+ * Retryable cases:
+ *   - HTTP 5xx from the Bitwarden API (server transient)
+ *   - HTTP 404 Resource not found (eventual consistency: a secret/project
+ *     that was just created via the API is briefly invisible to list/run
+ *     calls until the cache catches up)
+ *   - "unable to parse response" / "error sending request" style network
+ *     transients
+ *
+ * We deliberately do NOT retry 401/403 (auth failures), 400 (bad request),
+ * or anything that looks like a validation error — those are deterministic
+ * and retrying them just wastes time.
+ */
+function isTransientBwsStderr(stderr: string): boolean {
+  const lower = stderr.toLowerCase();
+  if (lower.includes('500 internal server error')) return true;
+  if (lower.includes('502 bad gateway')) return true;
+  if (lower.includes('503 service unavailable')) return true;
+  if (lower.includes('504 gateway timeout')) return true;
+  if (lower.includes('[404 not found]')) return true;
+  if (lower.includes('error sending request')) return true;
+  if (lower.includes('timed out')) return true;
+  if (lower.includes('connection reset')) return true;
+  return false;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
  * Raw spawn — used directly by a couple of tools that need access to the
  * exit code and stderr without JSON parsing (e.g. `bws_status`).
+ *
+ * Retries transient failures (5xx, eventual-consistency 404) with
+ * exponential backoff up to DEFAULT_RETRY_ATTEMPTS times. Auth errors,
+ * validation errors, and other deterministic failures bypass the retry.
  */
 export async function spawnBws(
   config: BwsConfig,
@@ -39,6 +86,26 @@ export async function spawnBws(
     throw new BwsMissingTokenError();
   }
 
+  let lastResult: SpawnResult | null = null;
+  for (let attempt = 0; attempt < DEFAULT_RETRY_ATTEMPTS; attempt++) {
+    const result = await spawnBwsOnce(config, args, opts);
+    if (result.exitCode === 0) return result;
+    if (!isTransientBwsStderr(result.stderr)) return result;
+    lastResult = result;
+    if (attempt < DEFAULT_RETRY_ATTEMPTS - 1) {
+      await sleep(DEFAULT_RETRY_BASE_MS * Math.pow(2, attempt));
+    }
+  }
+  // All attempts exhausted — return the last (still failed) result so the
+  // caller's error path runs normally.
+  return lastResult!;
+}
+
+async function spawnBwsOnce(
+  config: BwsConfig,
+  args: readonly string[],
+  opts: { requireToken?: boolean; stdin?: string } = {},
+): Promise<SpawnResult> {
   return new Promise<SpawnResult>((resolve, reject) => {
     const spawnOpts: SpawnOptions = {
       env: buildSpawnEnv(config),
